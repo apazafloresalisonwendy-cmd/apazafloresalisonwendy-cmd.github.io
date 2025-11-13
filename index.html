@@ -146,6 +146,8 @@
     .btn-danger:hover { background-color: #b91c1c; }
     .btn-success { background-color: #16a34a; color: white; }
     .btn-success:hover { background-color: #15803d; }
+    .btn-secondary { background-color: #6b7280; color: white; }
+    .btn-secondary:hover { background-color: #4b5563; }
     .score-display { font-size: 1.5rem; color: #fbbf24; margin: 10px 0; }
     .target-box {
       background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%) !important;
@@ -348,6 +350,12 @@
       0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
       100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
     }
+    .button-group {
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+      margin-top: 20px;
+    }
   </style>
 </head>
 
@@ -396,18 +404,26 @@
       <div class="game-over-message" id="gameOverMessage">
         "En química, incluso los mejores cometen errores... ¡pero siempre hay una segunda oportunidad!"
       </div>
-      <button class="btn-danger btn-pulse" data-reset-game>🔄 Reintentar</button>
+      <div class="button-group">
+        <button class="btn-danger btn-pulse" id="retryBtn">🔄 Reintentar</button>
+        <button class="btn-secondary" id="menuBtn">🏠 Volver al Inicio</button>
+      </div>
     </div>
   </div>
 
   <div id="winScreen" class="modal hidden">
-    <h1>🎉 ¡Ganaste!</h1>
-    <p style="font-size: 1.2rem; margin: 10px 0;">Comiste todos los elementos</p>
-    <p class="score-display">Puntaje final: <span id="winScore">0</span></p>
-    <button class="btn-success" data-reset-game>Volver al menú</button>
+    <div class="game-over-container">
+      <h1 style="color: #10b981;">🎉 ¡VICTORIA! 🎉</h1>
+      <p style="font-size: 1.2rem; margin: 10px 0;">¡Comiste todos los elementos!</p>
+      <p class="score-display">Puntaje final: <span id="winScore">0</span></p>
+      <div class="button-group">
+        <button class="btn-success" id="winRetryBtn">🔄 Jugar de Nuevo</button>
+        <button class="btn-secondary" id="winMenuBtn">🏠 Volver al Inicio</button>
+      </div>
+    </div>
   </div>
 
-  <div class="container">
+  <div class="container" id="gameContainer" style="display: none;">
     <div class="game-area">
       <canvas id="gameCanvas" width="600" height="600"></canvas>
     </div>
@@ -443,8 +459,7 @@
   <div class="audio-controls">
     <button class="audio-btn" id="muteBtn" title="Silenciar/Activar">🔊</button>
   </div>
-</body>
-</html>
+
 <script>
     class AudioManager {
       constructor() {
@@ -452,7 +467,6 @@
         this.isMuted = false;
         this.masterVolume = 0.3;
         this.speechEnabled = true;
-        this.bgMusicIntervalId = null;
         this.combo = 0;
         this.lastEatTime = 0;
       }
@@ -463,11 +477,12 @@
           console.log('Web Audio API no soportada');
         }
       }
-      speak(text, rate = 1.0, pitch = 1.0) {
+      speak(text, rate = 1.3, pitch = 1.3) {
         if (this.isMuted || !this.speechEnabled) return;
         if ('speechSynthesis' in window) {
           window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(text);
+          const cleanText = text.replace(/-/g, ' menos ').replace(/\+/g, ' más ');
+          const utterance = new SpeechSynthesisUtterance(cleanText);
           utterance.lang = 'es-ES';
           utterance.rate = rate;
           utterance.pitch = pitch;
@@ -475,7 +490,7 @@
           window.speechSynthesis.speak(utterance);
         }
       }
-      playTone(frequency, duration, type = 'sine', volume = 0.3, detune = 0) {
+      playTone(frequency, duration, type = 'sine', volume = 0.3) {
         if (!this.ctx || this.isMuted) return;
         const oscillator = this.ctx.createOscillator();
         const gainNode = this.ctx.createGain();
@@ -483,7 +498,6 @@
         gainNode.connect(this.ctx.destination);
         oscillator.frequency.value = frequency;
         oscillator.type = type;
-        oscillator.detune.value = detune;
         gainNode.gain.setValueAtTime(volume * this.masterVolume, this.ctx.currentTime);
         gainNode.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
         oscillator.start(this.ctx.currentTime);
@@ -500,10 +514,7 @@
           { notes: [523.25, 659.25], duration: 0.25 },
           { notes: [587.33, 698.46], duration: 0.25 },
           { notes: [659.25, 783.99], duration: 0.25 },
-          { notes: [783.99, 987.77], duration: 0.5 },
-          { notes: [659.25, 783.99], duration: 0.25 },
-          { notes: [587.33, 698.46], duration: 0.25 },
-          { notes: [523.25, 659.25], duration: 0.5 }
+          { notes: [783.99, 987.77], duration: 0.5 }
         ];
         let time = 0;
         melody.forEach(item => {
@@ -520,7 +531,6 @@
         notes.forEach((freq, i) => {
           setTimeout(() => {
             this.playTone(freq, 0.15, 'sine', 0.25);
-            this.playTone(freq * 2, 0.1, 'sine', 0.1);
           }, i * 80);
         });
       }
@@ -528,7 +538,6 @@
         if (this.isMuted) return;
         this.playTone(200, 0.1, 'sawtooth', 0.4);
         setTimeout(() => this.playTone(150, 0.2, 'sawtooth', 0.4), 100);
-        setTimeout(() => this.playTone(100, 0.3, 'square', 0.3), 200);
       }
       playGameOver() {
         if (this.isMuted) return;
@@ -536,30 +545,20 @@
         notes.forEach((freq, i) => {
           setTimeout(() => {
             this.playTone(freq, 0.2, 'triangle', 0.3);
-            this.playTone(freq * 0.5, 0.25, 'sine', 0.2);
           }, i * 100);
         });
-        setTimeout(() => {
-          this.playTone(130.81, 1.0, 'sawtooth', 0.4);
-        }, 900);
       }
       playVictory() {
         if (this.isMuted) return;
         const melody = [
           { freq: 523.25, duration: 0.2 },
-          { freq: 587.33, duration: 0.2 },
           { freq: 659.25, duration: 0.2 },
           { freq: 783.99, duration: 0.3 },
-          { freq: 1046.50, duration: 0.3 },
-          { freq: 783.99, duration: 0.2 },
-          { freq: 1046.50, duration: 0.5 },
-          { freq: 1318.51, duration: 0.8 }
+          { freq: 1046.50, duration: 0.5 }
         ];
         melody.forEach((note, i) => {
           setTimeout(() => {
             this.playTone(note.freq, note.duration, 'sine', 0.3);
-            this.playTone(note.freq * 2, note.duration * 0.8, 'sine', 0.15);
-            this.playTone(note.freq / 2, note.duration * 1.2, 'triangle', 0.2);
           }, i * 200);
         });
       }
@@ -572,124 +571,19 @@
           this.combo = 1;
         }
         this.lastEatTime = now;
-        
         const baseFreq = 800 + (this.combo * 50);
-        const pitchMultiplier = 1 + (this.combo * 0.1);
-        
-        this.playTone(baseFreq, 0.08, 'square', 0.25 + (this.combo * 0.02));
-        setTimeout(() => this.playTone(baseFreq * pitchMultiplier, 0.08, 'square', 0.25 + (this.combo * 0.02)), 40);
-        setTimeout(() => this.playTone(baseFreq * pitchMultiplier * 1.2, 0.1, 'sine', 0.15 + (this.combo * 0.01)), 80);
-        
-        if (this.combo >= 3) {
-          setTimeout(() => this.playTone(1200, 0.15, 'sine', 0.2), 150);
-        }
-        if (this.combo >= 5) {
-          setTimeout(() => this.playChord([1000, 1200, 1500], 0.2, 'sine', 0.15), 200);
-        }
-      }
-      playMove() {
-        if (this.isMuted) return;
-        this.playTone(400, 0.03, 'square', 0.05);
-      }
-      playTargetChange() {
-        if (this.isMuted) return;
-        this.playTone(600, 0.1, 'sine', 0.2);
-        setTimeout(() => this.playTone(800, 0.1, 'sine', 0.2), 80);
-        setTimeout(() => this.playTone(1000, 0.15, 'sine', 0.15), 160);
-      }
-      playLifeLost() {
-        if (this.isMuted) return;
-        this.playTone(300, 0.15, 'sawtooth', 0.4);
-        setTimeout(() => this.playTone(250, 0.15, 'sawtooth', 0.4), 120);
-        setTimeout(() => this.playTone(200, 0.2, 'square', 0.4), 240);
+        this.playTone(baseFreq, 0.08, 'square', 0.25);
       }
       speakElement(element, isCorrect = true) {
         if (isCorrect) {
           this.playEat();
-          const text = `${element.nombre}, ${element.sim}, ${element.valencia}`;
-          setTimeout(() => this.speak(text, 1.0 + (this.combo * 0.05), 1.2), 200);
+          const text = `${element.nombre}, ${element.sim}, valencia ${element.valencia}`;
+          setTimeout(() => this.speak(text, 1.3, 1.4), 200);
         } else {
           this.playError();
-          const text = `${element.nombre}, ${element.sim}, ${element.valencia}`;
-          setTimeout(() => this.speak(text, 0.9, 0.8), 200);
+          const text = `Incorrecto. ${element.nombre}`;
+          setTimeout(() => this.speak(text, 1.0, 0.9), 200);
         }
-      }
-      stopBgMusic() {
-        if (this.bgMusicIntervalId) {
-          clearInterval(this.bgMusicIntervalId);
-          this.bgMusicIntervalId = null;
-        }
-      }
-      playAmbientLoop() {
-        if (this.isMuted) return;
-        this.stopBgMusic();
-        
-        const playLoop = () => {
-          if (game.gameState !== 'playing' || this.isMuted) return;
-          
-          const melodies = [
-            [
-              { freq: 261.63, duration: 0.3, harmony: [130.81, 392.00] },
-              { freq: 329.63, duration: 0.3, harmony: [164.81, 493.88] },
-              { freq: 392.00, duration: 0.3, harmony: [196.00, 587.33] },
-              { freq: 349.23, duration: 0.25, harmony: [174.61, 523.25] },
-              { freq: 293.66, duration: 0.4, harmony: [146.83, 440.00] },
-              { freq: 329.63, duration: 0.3, harmony: [164.81, 493.88] },
-              { freq: 392.00, duration: 0.5, harmony: [196.00, 587.33] }
-            ],
-            [
-              { freq: 293.66, duration: 0.35, harmony: [146.83, 440.00] },
-              { freq: 349.23, duration: 0.3, harmony: [174.61, 523.25] },
-              { freq: 392.00, duration: 0.35, harmony: [196.00, 587.33] },
-              { freq: 440.00, duration: 0.3, harmony: [220.00, 659.25] },
-              { freq: 392.00, duration: 0.3, harmony: [196.00, 587.33] },
-              { freq: 349.23, duration: 0.3, harmony: [174.61, 523.25] },
-              { freq: 329.63, duration: 0.6, harmony: [164.81, 493.88] }
-            ]
-          ];
-          
-          const currentMelody = melodies[Math.floor(Math.random() * melodies.length)];
-          let timeOffset = 0;
-          
-          currentMelody.forEach(note => {
-            setTimeout(() => {
-              if (game.gameState !== 'playing' || this.isMuted) return;
-              
-              this.playTone(note.freq, note.duration, 'sine', 0.12);
-              this.playTone(note.freq * 2, note.duration * 0.8, 'sine', 0.06);
-              
-              note.harmony.forEach((harmFreq, idx) => {
-                this.playTone(harmFreq, note.duration * 1.1, idx === 0 ? 'triangle' : 'sine', 0.08);
-              });
-            }, timeOffset * 1000);
-            timeOffset += note.duration;
-          });
-          
-          setTimeout(playLoop, (timeOffset + 0.5) * 1000);
-        };
-        
-        playLoop();
-      }
-      playChemistryIntro() {
-        if (this.isMuted) return;
-        const intro = [
-          { freq: 523.25, duration: 0.15, harmony: [261.63, 783.99] },
-          { freq: 587.33, duration: 0.15, harmony: [293.66, 880.00] },
-          { freq: 659.25, duration: 0.15, harmony: [329.63, 987.77] },
-          { freq: 783.99, duration: 0.15, harmony: [392.00, 1174.66] },
-          { freq: 880.00, duration: 0.3, harmony: [440.00, 1318.51] },
-          { freq: 783.99, duration: 0.2, harmony: [392.00, 1174.66] },
-          { freq: 659.25, duration: 0.4, harmony: [329.63, 987.77] }
-        ];
-        intro.forEach((note, i) => {
-          setTimeout(() => {
-            this.playTone(note.freq, note.duration, 'sine', 0.25);
-            note.harmony.forEach(harmFreq => {
-              this.playTone(harmFreq, note.duration * 0.9, 'sine', 0.12);
-            });
-            this.playTone(note.freq / 2, note.duration, 'triangle', 0.15);
-          }, i * 150);
-        });
       }
       toggleMute() {
         this.isMuted = !this.isMuted;
@@ -698,11 +592,9 @@
           btn.textContent = '🔇';
           btn.classList.add('muted');
           window.speechSynthesis.cancel();
-          this.stopBgMusic();
         } else {
           btn.textContent = '🔊';
           btn.classList.remove('muted');
-          this.playMenuMusic();
         }
         return this.isMuted;
       }
@@ -810,7 +702,6 @@
         this.canvas.addEventListener('touchstart', (e) => this.handleTouchStart(e), { passive: false });
         this.canvas.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
         this.canvas.addEventListener('touchend', (e) => this.handleTouchEnd(e), { passive: false });
-        
         this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
         
         this.touchStartX = 0;
@@ -823,8 +714,13 @@
           this.startGame();
         });
         
-        document.querySelectorAll('[data-reset-game]').forEach(btn => {
-          btn.addEventListener('click', () => this.resetGame());
+        document.getElementById('retryBtn').addEventListener('click', () => this.retryGame());
+        document.getElementById('menuBtn').addEventListener('click', () => this.backToMenu());
+        document.getElementById('winRetryBtn').addEventListener('click', () => this.retryGame());
+        document.getElementById('winMenuBtn').addEventListener('click', () => this.backToMenu());
+        
+        document.getElementById('muteBtn').addEventListener('click', () => {
+          audioManager.toggleMute();
         });
       },
 
@@ -968,14 +864,35 @@
         this.placeFood();
         
         document.getElementById('menuScreen').classList.add('hidden');
+        document.getElementById('gameContainer').style.display = 'flex';
         
-        audioManager.playChemistryIntro();
-        setTimeout(() => {
-          audioManager.playAmbientLoop();
-        }, 1200);
+        audioManager.playSuccess();
         
         if (this.gameInterval) clearInterval(this.gameInterval);
         this.gameInterval = setInterval(() => this.draw(), 150);
+      },
+
+      retryGame() {
+        document.getElementById('gameOverScreen').classList.add('hidden');
+        document.getElementById('winScreen').classList.add('hidden');
+        this.startGame();
+      },
+
+      backToMenu() {
+        this.gameState = 'menu';
+        document.getElementById('menuScreen').classList.remove('hidden');
+        document.getElementById('gameOverScreen').classList.add('hidden');
+        document.getElementById('winScreen').classList.add('hidden');
+        document.getElementById('gameContainer').style.display = 'none';
+        
+        audioManager.playMenuMusic();
+        
+        if (this.gameInterval) clearInterval(this.gameInterval);
+        
+        if (this.ctx) {
+          this.ctx.fillStyle = '#111827';
+          this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        }
       },
 
       setTargetElement() {
@@ -1167,7 +1084,6 @@
               
               this.foodItems.splice(i, 1);
               this.addNewFoodItem();
-              
               this.ensureTargetElementsAvailable();
               
               ateFood = true;
@@ -1347,7 +1263,7 @@
                              colorClass === 'nometal' ? 'badge-nometal' : 'badge-anfotero';
           lastElDisplay.innerHTML = `<span class="badge ${badgeClass}">${this.lastElement.sim} (${this.lastElement.valencia})</span>`;
         } else {
-          lastElDisplay.innerHTML = '<span style="color: #9ca3af;">Ninguno</span>';
+         lastElDisplay.innerHTML = '<span style="color: #9ca3af;">Ninguno</span>';
         }
       },
 
@@ -1374,6 +1290,7 @@
           
           document.getElementById('gameOverScreen').classList.remove('hidden');
         } else if (state === 'win') {
+          
           audioManager.playVictory();
           
           document.getElementById('winScore').textContent = this.score;
@@ -1407,5 +1324,4 @@
     });
 </script>
 </body>
-
 </html>
